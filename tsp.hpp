@@ -14,9 +14,8 @@
 #include <iostream>
 #include <sstream>
 
-
 using index_t = std::size_t;
-using distance_t = std::int32_t; // nie double! zgodność z TSPLIB aby móc opierać się na wynikach z niej
+using distance_t = std::int64_t; // nie double! zgodność z TSPLIB aby móc opierać się na wynikach z niej
 // moze zmienic na tsp_lib_distance_t?
 // trzeba zobaczyć co z problemami z innymi jednostkami (np floating-point)
 using point_t = std::pair<double, double>;
@@ -164,6 +163,8 @@ namespace detail {
     };
 }
 
+static int global_cost_fn_call_counter = 0;
+
 template <typename T, typename Derived, bool should_cache = CACHE_THE_COST>
 class base_TSP_solution_set { // zmienic nazwe na base_chromosome
 protected:
@@ -203,6 +204,7 @@ public:
 
         if constexpr (should_cache) {
             if (!cache.up_to_date) {
+                ++global_cost_fn_call_counter;
                 cache.cost = static_cast<const Derived&>(*this)._compute_cost(graph);
                 cache.up_to_date = true;
             }
@@ -210,6 +212,7 @@ public:
             return cache.cost;
         }
         else {
+            ++global_cost_fn_call_counter;
             return static_cast<const Derived&>(*this)._compute_cost(graph);
         }
     }
@@ -346,7 +349,7 @@ public:
     }
 
     distance_t _compute_cost(const TSP_Graph& graph) const {
-        return discretize<DONT_CACHE_THE_COST>(graph.n_cities())._compute_cost(graph); // dodac tu <DONT_CACHE_THE_COST?>
+        return discretize<DONT_CACHE_THE_COST>(graph.n_cities()).total_cost(graph); // dodac tu <DONT_CACHE_THE_COST?>
     }
 
     template <bool local_should_cache = false>

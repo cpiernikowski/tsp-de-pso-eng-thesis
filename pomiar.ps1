@@ -27,7 +27,6 @@ $time = Measure-Command {
             $p = Get-Process -Id $proc.Id -ErrorAction Stop
             $now = Get-Date
 
-            # ===== CPU % (jak Menedżer zadań) =====
             $cpuTimeDelta = $p.TotalProcessorTime - $prevCpuTime
             $timeDelta = ($now - $prevSampleTime).TotalSeconds
 
@@ -39,7 +38,6 @@ $time = Measure-Command {
             $prevCpuTime = $p.TotalProcessorTime
             $prevSampleTime = $now
 
-            # ===== RAM (MB) =====
             $ramSamples += ($p.WorkingSet64 / 1MB)
 
             Start-Sleep -Milliseconds $sampleIntervalMs

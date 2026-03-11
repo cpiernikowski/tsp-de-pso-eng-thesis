@@ -40,6 +40,8 @@ public:
         current_best_info.make_invalid();
     }
 
+    auto get_cr() const noexcept { return CR; }
+
     void evolve(std::mt19937& gen) {
         assert(debug_population_initialized && "best(): population wasn't initialized");
 
@@ -51,14 +53,10 @@ public:
 
         using gene_value_type = individual_type::value_type; // zmienic value_type na gene_type
         const auto normalize = [](gene_value_type val) -> gene_value_type {
-            // val może być od -2 do 2 (w zaleznosci od F)
             val = std::fmod(val, gene_value_type{1.0});
-
-            if (val < gene_value_type{0.0}) { // sprawdzic czy ten check jest potrzebny w ogole - czy fmod zwraca tez ujemne?
-                //val += gene_value_type{1.0};
-                val = -val;
+            if (val < gene_value_type{0.0}) {
+                val += gene_value_type{1.0};
             }
-
             return val;
         };
 
@@ -99,7 +97,6 @@ public:
             }
 
             G_cost_func_counter += 2;
-        }
 
         //const auto best_this_iter = this->best();
         //if (best_this_iter.cost >= current_best_info.cost) {
@@ -109,6 +106,12 @@ public:
         //    this->CR = CR_default;
         //    current_best_info = best_this_iter;
         //}
+        }
+
+        // nowe pomiary
+        auto best_current = best();
+        std::cout << "Najlepsza trasa dotad: " << get(best_current.index).total_cost(graph) <<'\n';
+        std::cout << "Obecna ilosc wywolan funkcji kosztu:" << G_cost_func_counter << '\n';
     }
 
     const auto& get_best_info() const noexcept {
@@ -138,18 +141,24 @@ int main(int argc, char** argv) { // dodac argumenty programu - sciezka do probl
     DE_population pop(pargs.pop_size, graph, pargs.max_iters_2opt);
     pop.generate_random(mt);
 
+    auto best = pop.best();
+
+    std::cout << "Początkowa najlepsza droga: " << pop.get(best.index).total_cost(graph) << '\n';
+
     for (std::size_t i = 0; i < pargs.n_of_evolutions; ++i) { // liczba ewolucji
         pop.evolve(mt);
     }
 
-    auto best = pop.best();
+    best = pop.best();
 
     std::cout << "Najlepsza znaleziona droga:\n";
     pop.get(best.index)
        .discretize(pop.n_genes())
        .print(std::cout, pop.n_genes(), "\n", true);
     std::cout << "Koszt tej trasy: " << best.cost << '\n';
-    std::cout << "Ilosc wywolan funkcji kosztu: " << G_cost_func_counter;
+    std::cout << "Ilosc wywolan funkcji kosztu: " << G_cost_func_counter << '\n';
+    std::cout << "Ilosc wywolan funkcji kosztu: " << global_cost_fn_call_counter << '\n';;
+    std::cout << "CR: " << pop.get_cr();
 
     return EXIT_SUCCESS;
 }

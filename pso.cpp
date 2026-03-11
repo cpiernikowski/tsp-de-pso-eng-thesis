@@ -4,6 +4,9 @@
 
 static uint64_t G_cost_func_counter = 0;
 
+static uint64_t G_best_vec_changed = 0;
+static uint64_t G_best_vec_comparison = 0;
+
 struct velocity_vec {
     std::unique_ptr<double[]> v;
 
@@ -21,7 +24,7 @@ struct velocity_vec {
         return v[i];
     }
 
-    double& mutable_at(index_t i) const noexcept {
+    double& mutable_at(index_t i) noexcept {
         return v[i];
     }
 };
@@ -62,11 +65,16 @@ using PSO_individual_caching = t_PSO_individual<CACHE_THE_COST>;
 class PSO_population final : public Population<PSO_individual, PSO_individual> {
     using _my_base = Population<PSO_individual, PSO_individual>;
 
-    double phi_p;
-    double phi_g;
-    double w;
-    Continous_TSP_solution_set_caching best_known_pos; //  w tym ma byc caching
-    std::size_t max_iters_2opt;
+    const double phi_p;
+    const double phi_g;
+    const double w;
+    Continous_TSP_solution_set best_known_pos; //  w tym moze byc caching
+    const std::size_t max_iters_2opt;
+    const double V_MAX;
+    const double V_MIN;
+
+    static constexpr double X_MIN = 0.0;
+    static constexpr double X_MAX = 1.0;
 
 public:
     PSO_population(std::size_t pop_size, const TSP_Graph& graph_ref, std::size_t max_iters_2opt, double phi_p, double phi_g, double w)
@@ -76,6 +84,8 @@ public:
     , w{w}
     , best_known_pos(graph_ref.n_cities())
     , max_iters_2opt{max_iters_2opt}
+    , V_MAX{1 / static_cast<double>(n_genes())} //{0.05 * 1.0}//
+    , V_MIN{-V_MAX}
     {
 
     }
@@ -115,35 +125,22 @@ public:
         return best_known_pos;
     }
 
-    void reflect_position_velocity(double& x, double& v, double vmax) {
-        constexpr double X_MIN = 0.0;
-        constexpr double X_MAX = 1.0;
-        
-        double V_MAX = vmax;
-        double V_MIN = -V_MAX;
-
-        // --- ODBICIE DLA x < 0 ---
+    void reflect_position_velocity(double& x, double& v) {
         if (x < X_MIN) {
-            x = X_MIN + (X_MIN - x);   // odbicie względem 0
-            v = -v;
-        }
-        // --- ODBICIE DLA x > 1 ---
-        else if (x > X_MAX) {
-            x = X_MAX - (x - X_MAX);   // odbicie względem 1
+            x = X_MIN + (X_MIN - x);
             v = -v;
         }
 
-        // --- JEŚLI PO ODBICIU DALEJ JEST POZA ZAKRESEM (duże v) ---
-        // np. x = -2.3 → po odbiciu nadal < 0
+        else if (x > X_MAX) {
+            x = X_MAX - (x - X_MAX); 
+            v = -v;
+        }
+
         if (x < X_MIN) {
             x = X_MIN;
         } else if (x > X_MAX) {
             x = X_MAX;
         }
-
-        // --- OGRANICZENIE PRĘDKOŚCI ---
-        if (v < V_MIN) v = V_MIN;
-        else if (v > V_MAX) v = V_MAX;
     }
 
     void evolve(std::mt19937& gen) {
@@ -151,12 +148,6 @@ public:
 
         static std::uniform_real_distribution dis1(0.0, 1.0);
         const auto local_n_genes = n_genes();
-
-        //using gene_value_type = individual_type::value_type; // zmienic value_type na gene_type
-        //const auto normalized = [](gene_value_type val, double min, double max) -> gene_value_type {
-        //    // val może być od -2 do 2 (w zaleznosci od F)
-        //    return std::clamp(val, min, max);
-        //};
 
         for (index_t i = 0; i < n; ++i) {
             auto& particle_i = pop[i];
@@ -171,13 +162,13 @@ public:
                             * (particle_i.best_known_pos.at(j) - particle_ij)
                             + phi_g * r_g * (best_known_pos.at(j) - particle_ij);
 
-                //velocity_ij = normalized(velocity_ij, -1.0, 1.0); // zmienic te wartosci -1 i 1 na stałe
-                velocity_ij = std::clamp(velocity_ij, -1.0, 1.0);
+                velocity_ij = std::clamp(velocity_ij, V_MIN, V_MAX);
                 particle_ij += velocity_ij;
-                if (dis1(gen) < 0.05) {   // 5% szansy na szum
-                    particle_ij += std::normal_distribution<double>(0, 0.02)(gen);
-                }
-                reflect_position_velocity(particle_ij, velocity_ij, 1.0 / static_cast<double>(local_n_genes));
+                
+                //if (dis1(gen) < 0.05) {   // 5% szansy na szum
+                //    particle_ij += std::normal_distribution<double>(0, 0.02)(gen);
+                //}
+                reflect_position_velocity(particle_ij, velocity_ij);
             }
 
             auto discrete_ch = particle_i.discretize<DONT_CACHE_THE_COST>(local_n_genes);
@@ -191,11 +182,24 @@ public:
 
                 ++G_cost_func_counter;
 
+                if ((G_cost_func_counter % 200) == 0) {
+                    std::cout << "Najlepsza trasa dotad: " << best_known_pos.total_cost(graph) <<'\n';
+                    std::cout << "Obecna ilosc wywolan funkcji kosztu:" << G_cost_func_counter << '\n';
+                }
+
+                ++G_best_vec_comparison;
+
                 if (particle_i_cost < best_known_pos.total_cost(graph)) {
                     best_known_pos.write_copy_of(particle_i, local_n_genes);
+                    ++G_best_vec_changed;
                 }
             }
             G_cost_func_counter += 2;
+            const auto r = G_cost_func_counter % 200;
+            if (r == 0 || r == 1) {
+                std::cout << "Najlepsza trasa dotad: " << best_known_pos.total_cost(graph) <<'\n';
+                std::cout << "Obecna ilosc wywolan funkcji kosztu:" << G_cost_func_counter << '\n';
+            }
         }
     }
 };
@@ -222,6 +226,11 @@ int main(int argc, char** argv) {
     PSO_population pop(pargs.pop_size, graph, pargs.max_iters_2opt, 1.5, 1.5, 0.7);
     pop.generate_random(mt);
 
+    const auto& ref_best_current = pop.best();
+
+    std::cout << "Najlepsza trasa dotad: " << ref_best_current.total_cost(graph) <<'\n';
+    std::cout << "Obecna ilosc wywolan funkcji kosztu:" << G_cost_func_counter << '\n';
+
     for (std::size_t i = 0; i < pargs.n_of_evolutions; ++i) { // liczba ewolucji
         pop.evolve(mt);
     }
@@ -232,7 +241,10 @@ int main(int argc, char** argv) {
     best.discretize(graph.n_cities()).print(std::cout, pop.n_genes(), "\n", true);
 
     std::cout << "Koszt tej trasy: " << best.total_cost(graph) << '\n';
-    std::cout << "Ilosc wywolan funkcji kosztu: " << G_cost_func_counter;
+    std::cout << "Ilosc wywolan funkcji kosztu: " << G_cost_func_counter << '\n';
+    std::cout << "Ilosc wywolan funkcji kosztu: " << global_cost_fn_call_counter << '\n';
+    std::cout << "Porównania z najelpszym globalnie położeniem: " << G_best_vec_comparison << '\n';
+    std::cout << "Ile razy zmnieniło się najlepsze globalnie położenie: " << G_best_vec_changed;
 
     return EXIT_SUCCESS;
 }
